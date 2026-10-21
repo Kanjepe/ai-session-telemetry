@@ -118,3 +118,14 @@ test('aggregateCodexSession clears completed action and marks stale work paused'
   assert.equal(session.currentToolDetail, null);
   assert.equal(session.toolCount, 1);
 });
+
+test('aggregateCodexSession names unnamed tool calls by their type, not as shell', () => {
+  const t = new Date().toISOString();
+  const content = rolloutLines([
+    entry(t, 'response_item', { type: 'local_shell_call', call_id: 'a' }),
+    entry(t, 'response_item', { type: 'web_search_call', call_id: 'b' }),
+    entry(t, 'response_item', { type: 'custom_tool_call', call_id: 'c' }),
+  ]);
+  const session = aggregateCodexSession('x', content, { mtimeMs: Date.now(), size: 1 });
+  assert.deepEqual(session.toolUsage, { shell: 1, web_search: 1, custom_tool: 1 });
+});

@@ -11,3 +11,6 @@ Thumbs.db
 
 # Machine-specific startup helper (hardcoded local path)
 start-hidden.vbs
+
+# Local browser-test screenshots
+.playwright-mcp/

@@ -17,113 +17,7 @@ import {
   scanCodexSessions,
 } from './lib/codex.js';
 import { getRegistry, getSkillDetail, getAgentDetail } from './lib/registry.js';
-
-function aggregateActivity(sessions) {
-  const agentsByType = new Map();
-  const skillsByName = new Map();
-  const timeline = [];
-
-  for (const s of sessions) {
-    const parentName = s.projectName || 'unknown';
-
-    for (const sub of s.subagents || []) {
-      let bucket = agentsByType.get(sub.type);
-      if (!bucket) {
-        bucket = {
-          type: sub.type,
-          activeCount: 0,
-          totalCount: 0,
-          totalDurationMs: 0,
-          completedCount: 0,
-          parents: new Map(),
-          history: [],
-          lastSeen: '',
-        };
-        agentsByType.set(sub.type, bucket);
-      }
-      bucket.totalCount += 1;
-      if (!sub.completed) bucket.activeCount += 1;
-      if (sub.completed && sub.durationMs != null) {
-        bucket.totalDurationMs += sub.durationMs;
-        bucket.completedCount += 1;
-      }
-      bucket.history.push({ t: sub.timestamp });
-      if (!bucket.lastSeen || sub.timestamp > bucket.lastSeen) {
-        bucket.lastSeen = sub.timestamp;
-      }
-
-      let parent = bucket.parents.get(s.sessionId);
-      if (!parent) {
-        parent = { sessionId: s.sessionId, projectName: parentName, count: 0, activeCount: 0 };
-        bucket.parents.set(s.sessionId, parent);
-      }
-      parent.count += 1;
-      if (!sub.completed) parent.activeCount += 1;
-
-      timeline.push({
-        kind: 'agent',
-        timestamp: sub.timestamp,
-        name: sub.type,
-        description: sub.description,
-        completed: sub.completed,
-        durationMs: sub.durationMs,
-        sessionId: s.sessionId,
-        projectName: parentName,
-      });
-    }
-
-    for (const sk of s.skills || []) {
-      let bucket = skillsByName.get(sk.name);
-      if (!bucket) {
-        bucket = {
-          name: sk.name,
-          totalCount: 0,
-          parents: new Map(),
-          history: [],
-          lastSeen: '',
-        };
-        skillsByName.set(sk.name, bucket);
-      }
-      bucket.totalCount += 1;
-      bucket.history.push({ t: sk.timestamp });
-      if (!bucket.lastSeen || sk.timestamp > bucket.lastSeen) {
-        bucket.lastSeen = sk.timestamp;
-      }
-
-      let parent = bucket.parents.get(s.sessionId);
-      if (!parent) {
-        parent = { sessionId: s.sessionId, projectName: parentName, count: 0 };
-        bucket.parents.set(s.sessionId, parent);
-      }
-      parent.count += 1;
-
-      timeline.push({
-        kind: 'skill',
-        timestamp: sk.timestamp,
-        name: sk.name,
-        sessionId: s.sessionId,
-        projectName: parentName,
-      });
-    }
-  }
-
-  timeline.sort((a, b) => (a.timestamp < b.timestamp ? 1 : -1));
-
-  const finalize = (bucket) => ({
-    ...bucket,
-    parents: Array.from(bucket.parents.values()).sort((a, b) => b.count - a.count),
-  });
-
-  return {
-    agents: Array.from(agentsByType.values())
-      .map(finalize)
-      .sort((a, b) => b.activeCount - a.activeCount || (a.lastSeen < b.lastSeen ? 1 : -1)),
-    skills: Array.from(skillsByName.values())
-      .map(finalize)
-      .sort((a, b) => (a.lastSeen < b.lastSeen ? 1 : -1)),
-    timeline: timeline.slice(0, 120),
-  };
-}
+import { aggregateActivity } from './lib/activity.js';
 
 async function buildSnapshot() {
   const [claudeSessions, codexSessions, processes, stats, statsCodex, registry] = await Promise.all([
@@ -194,13 +88,16 @@ app.use('/api', apiLimiter);
 
 app.use(express.static(join(__dirname, 'public')));
 
-app.get('/api/sessions', async (req, res) => {
-  try {
-    res.json(await buildSnapshot());
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+// Express 4 does not catch async rejections; route them to a JSON 500.
+const handle = (fn) => (req, res) =>
+  Promise.resolve(fn(req, res)).catch((err) => {
+    console.error(`[api] ${req.path} failed:`, err.message);
+    res.status(500).json({ error: 'internal error' });
+  });
+
+app.get('/api/sessions', handle(async (req, res) => {
+  res.json(await buildSnapshot());
+}));
 
 app.get('/api/health', (req, res) => {
   res.json({ ok: true, projectsDir: getProjectsDir() });
@@ -208,23 +105,23 @@ app.get('/api/health', (req, res) => {
 
 const SAFE_NAME_RE = /^[a-z0-9][a-z0-9_-]*$/i;
 
-app.get('/api/skill/:slug', async (req, res) => {
+app.get('/api/skill/:slug', handle(async (req, res) => {
   if (!SAFE_NAME_RE.test(req.params.slug)) {
     return res.status(400).json({ error: 'invalid slug' });
   }
   const detail = await getSkillDetail(req.params.slug);
   if (!detail) return res.status(404).json({ error: 'not found' });
   res.json(detail);
-});
+}));
 
-app.get('/api/agent/:domain/:slug', async (req, res) => {
+app.get('/api/agent/:domain/:slug', handle(async (req, res) => {
   if (!SAFE_NAME_RE.test(req.params.domain) || !SAFE_NAME_RE.test(req.params.slug)) {
     return res.status(400).json({ error: 'invalid name' });
   }
   const detail = await getAgentDetail(req.params.domain, req.params.slug);
   if (!detail) return res.status(404).json({ error: 'not found' });
   res.json(detail);
-});
+}));
 
 const server = createServer(app);
 
@@ -273,8 +170,11 @@ const REFRESH_DEBOUNCE_MS = 400;
 let refreshTimer = null;
 const pendingFiles = new Set();
 
-function scheduleRefresh(filePath) {
+const pendingLoaders = new Map();
+
+function scheduleRefresh(filePath, loader = loadSession) {
   pendingFiles.add(filePath);
+  pendingLoaders.set(filePath, loader);
   if (refreshTimer) clearTimeout(refreshTimer);
   refreshTimer = setTimeout(async () => {
     const files = Array.from(pendingFiles);
@@ -282,7 +182,9 @@ function scheduleRefresh(filePath) {
     refreshTimer = null;
     for (const file of files) {
       try {
-        const session = await loadSession(file);
+        const load = pendingLoaders.get(file) || loadSession;
+        pendingLoaders.delete(file);
+        const session = await load(file);
         if (session) {
           broadcast({ type: 'session-update', session });
         }
@@ -294,10 +196,20 @@ function scheduleRefresh(filePath) {
 }
 
 const PERIODIC_REFRESH_MS = 5000;
-setInterval(async () => {
+// Stats come from 60 s caches and return the same object until they change,
+// so unchanged stats are left out of the periodic push (clients keep theirs).
+let lastSentStats = null;
+let lastSentStatsCodex = null;
+
+const periodicTimer = setInterval(async () => {
   try {
     const snap = await buildSnapshot();
-    broadcast({ type: 'snapshot', ...snap });
+    const msg = { type: 'snapshot', ...snap };
+    if (snap.stats === lastSentStats) delete msg.stats;
+    if (snap.statsCodex === lastSentStatsCodex) delete msg.statsCodex;
+    lastSentStats = snap.stats;
+    lastSentStatsCodex = snap.statsCodex;
+    broadcast(msg);
   } catch (err) {
     console.error('[periodic] scan failed:', err.message);
   }
@@ -319,21 +231,15 @@ watcher.on('change', onJsonlChange);
 watcher.on('error', (err) => console.error('[watch] error:', err.message));
 
 const codexSessionsDir = getCodexSessionsDir();
-const codexWatcher = chokidar.watch(`${codexSessionsDir.replace(/\\/g, '/')}/**/*.jsonl`, {
+const codexDirGlob = codexSessionsDir.replace(/\\/g, '/');
+const codexWatcher = chokidar.watch([`${codexDirGlob}/**/*.jsonl`, `${codexDirGlob}/**/*.jsonl.zst`], {
   ignoreInitial: true,
   awaitWriteFinish: { stabilityThreshold: 200, pollInterval: 100 },
 });
 
-async function onCodexJsonlChange(filePath) {
+function onCodexJsonlChange(filePath) {
   invalidateCodexStatsCache();
-  try {
-    const session = await loadCodexSession(filePath);
-    if (session) {
-      broadcast({ type: 'session-update', session });
-    }
-  } catch (err) {
-    console.error(`[codex-watch] failed to load ${filePath}:`, err.message);
-  }
+  scheduleRefresh(filePath, loadCodexSession);
 }
 
 codexWatcher.on('add', onCodexJsonlChange);
@@ -349,9 +255,12 @@ server.listen(PORT, HOST, () => {
   console.log(`  Open:     http://${displayHost}:${PORT}\n`);
 });
 
-process.on('SIGINT', () => {
+function shutdown() {
   console.log('\n  Shutting down...');
+  clearInterval(periodicTimer);
   watcher.close();
   codexWatcher.close();
   server.close(() => process.exit(0));
-});
+}
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);
