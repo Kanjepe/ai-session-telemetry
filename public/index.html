@@ -4,6 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>ai-session-telemetry ── live session monitor</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 16 16%22%3E%3Crect width=%2216%22 height=%2216%22 fill=%22%23050a05%22/%3E%3Crect x=%223%22 y=%224%22 width=%224%22 height=%228%22 fill=%22%2333ff66%22/%3E%3C/svg%3E" />
     <link rel="stylesheet" href="/style.css" />
   </head>
   <body>
@@ -34,8 +35,8 @@
           <code>~/.claude/projects/</code> + <code>~/.codex/sessions/</code>
           ·
           <span class="hdr__today">
-            today: <strong id="today-tokens">--</strong>
-            <span class="hdr__today-label">tokens</span>
+            today: <strong id="today-cost">--</strong>
+            <span class="hdr__today-label">· <span id="today-tokens">--</span> tokens</span>
           </span>
         </p>
       </header>
@@ -199,114 +200,76 @@
         <span class="empty__hint">// start a claude or codex session and it will appear here</span>
       </p>
 
-      <section class="stats-panel" aria-label="Token statistics">
-        <h2 class="stats-panel__head">
-          <span class="stats-panel__rule">══</span>
-          <span class="stats-panel__title">token statistics</span>
-          <div class="chart-tabs provider-tabs" role="tablist" aria-label="Provider">
-            <button class="chart-tab" data-provider="claude" data-active="true" role="tab">claude</button>
-            <button class="chart-tab" data-provider="codex" role="tab">codex</button>
+      <section class="stats-panel" aria-label="Usage statistics" hidden>
+        <div class="st-bar">
+          <div class="seg" role="group" aria-label="Period">
+            <button type="button" class="seg__btn" data-period="day">day</button>
+            <button type="button" class="seg__btn" data-period="week">week</button>
+            <button type="button" class="seg__btn" data-period="month">month</button>
+            <button type="button" class="seg__btn" data-period="year">year</button>
           </div>
-          <span class="stats-panel__rule stats-panel__rule--fill"></span>
-          <span class="stats-panel__meta" id="stats-meta">scanning</span>
-        </h2>
-
-        <div class="totals">
-          <article class="total">
-            <header class="total__head">
-              <span class="total__label">today</span>
-              <span class="total__num"><span id="total-today">--</span></span>
-            </header>
-            <span class="total__cost" id="total-today-cost">$--</span>
-            <div class="total__bar" aria-hidden="true">
-              <span class="total__fill" id="total-today-bar" style="width: 0%"></span>
-            </div>
-            <span class="total__hint" id="total-today-date">--</span>
-          </article>
-
-          <article class="total">
-            <header class="total__head">
-              <span class="total__label">this week</span>
-              <span class="total__num"><span id="total-week">--</span></span>
-            </header>
-            <span class="total__cost" id="total-week-cost">$--</span>
-            <div class="total__bar" aria-hidden="true">
-              <span class="total__fill" id="total-week-bar" style="width: 0%"></span>
-            </div>
-            <span class="total__hint" id="total-week-hint">from --</span>
-          </article>
-
-          <article class="total">
-            <header class="total__head">
-              <span class="total__label">this month</span>
-              <span class="total__num"><span id="total-month">--</span></span>
-            </header>
-            <span class="total__cost" id="total-month-cost">$--</span>
-            <div class="total__bar" aria-hidden="true">
-              <span class="total__fill" id="total-month-bar" style="width: 0%"></span>
-            </div>
-            <span class="total__hint" id="total-month-hint">from --</span>
-          </article>
-        </div>
-
-        <div class="chart-wrap">
-          <div class="chart-head">
-            <h3 class="sec-head" id="chart-title">▸ last 24h</h3>
-            <div class="chart-tabs" role="tablist" aria-label="Chart range">
-              <button class="chart-tab" data-range="hours" data-active="true" role="tab">hours</button>
-              <button class="chart-tab" data-range="days" role="tab">days</button>
-              <button class="chart-tab" data-range="weeks" role="tab">weeks</button>
-              <button class="chart-tab" data-range="months" role="tab">months</button>
-              <button class="chart-tab" data-range="year" role="tab">year</button>
-            </div>
+          <div class="st-nav">
+            <button type="button" class="st-nav__btn" data-shift="-1" aria-label="Previous period" title="Previous (←)">‹</button>
+            <span class="st-nav__label" id="st-label" aria-live="polite">--</span>
+            <button type="button" class="st-nav__btn" data-shift="1" aria-label="Next period" title="Next (→)">›</button>
+            <button type="button" class="st-nav__now" data-shift="0">now</button>
           </div>
-          <div class="chart24" id="chart24" role="img" aria-label="Token consumption chart"></div>
-        </div>
-
-        <div class="memory-split" id="memory-split" hidden>
-          <span class="memory-split__label">memory infra (claude-mem observer):</span>
-          <span class="memory-split__vals" id="memory-split-vals"></span>
-        </div>
-
-        <div class="tops">
-          <div class="top">
-            <h3 class="sec-head">▸ top · today</h3>
-            <ol class="top__list" id="top-today"></ol>
-          </div>
-          <div class="top">
-            <h3 class="sec-head">▸ top · week</h3>
-            <ol class="top__list" id="top-week"></ol>
-          </div>
-          <div class="top">
-            <h3 class="sec-head">▸ top · month</h3>
-            <ol class="top__list" id="top-month"></ol>
+          <div class="seg" role="group" aria-label="Provider">
+            <button type="button" class="seg__btn" data-stats-provider="all">all</button>
+            <button type="button" class="seg__btn" data-stats-provider="claude">claude</button>
+            <button type="button" class="seg__btn" data-stats-provider="codex">codex</button>
           </div>
         </div>
 
-        <div class="tops">
-          <div class="top">
-            <h3 class="sec-head">▸ by model · today</h3>
-            <ol class="top__list" id="models-today"></ol>
+        <div class="st-kpis">
+          <div class="kpi kpi--main">
+            <span class="kpi__label">cost</span>
+            <span class="kpi__val" id="st-cost">$0</span>
           </div>
-          <div class="top">
-            <h3 class="sec-head">▸ by model · week</h3>
-            <ol class="top__list" id="models-week"></ol>
+          <div class="kpi">
+            <span class="kpi__label">tokens</span>
+            <span class="kpi__val" id="st-tokens">0</span>
           </div>
-          <div class="top">
-            <h3 class="sec-head">▸ by model · month</h3>
-            <ol class="top__list" id="models-month"></ol>
+          <div class="kpi">
+            <span class="kpi__label">change</span>
+            <span class="kpi__val kpi__delta" id="st-delta" data-trend="flat">—</span>
+            <span class="kpi__hint" id="st-delta-hint"></span>
+          </div>
+          <div class="kpi">
+            <span class="kpi__label">forecast</span>
+            <span class="kpi__val" id="st-forecast">—</span>
+            <span class="kpi__hint" id="st-forecast-hint"></span>
           </div>
         </div>
 
-        <div class="months-models">
-          <h3 class="sec-head" id="months-models-title">▸ history · by model</h3>
-          <div class="months-models__body" id="months-models-body"></div>
+        <div class="st-chart">
+          <p class="st-readout" id="st-readout"></p>
+          <div class="st-bars" id="st-bars"></div>
+          <p class="st-note" id="st-note" hidden></p>
+        </div>
+
+        <div class="st-heat-wrap" id="st-heat-wrap" hidden>
+          <h3 class="sec-head">daily cost · last 12 months</h3>
+          <div class="st-heat" id="st-heat"></div>
+          <p class="st-heat__legend">less <span data-level="0"></span><span data-level="1"></span><span data-level="2"></span><span data-level="3"></span><span data-level="4"></span> more · click a day to open it</p>
+        </div>
+
+        <div class="st-split">
+          <section>
+            <h3 class="sec-head">projects</h3>
+            <ol class="st-list" id="st-projects"></ol>
+          </section>
+          <section>
+            <h3 class="sec-head">models</h3>
+            <ol class="st-list" id="st-models"></ol>
+          </section>
         </div>
 
         <details class="pricing-ref" id="pricing-ref">
           <summary class="pricing-ref__head">
             <span class="pricing-ref__chevron">▸</span>
-            <span class="pricing-ref__title">pricing reference · how $ is calculated</span>
+            <span class="pricing-ref__title">pricing · how $ is calculated</span>
+            <span class="pricing-ref__meta" id="st-meta"></span>
           </summary>
           <div class="pricing-ref__body" id="pricing-ref-body"></div>
         </details>
@@ -316,7 +279,7 @@
         <span class="ftr__line">────────────────────────────────────────────────────────────────────</span>
         <p>
           window: <strong>last 30 min</strong> · older sessions filtered ·
-          source: <code>~/.claude/projects/*.jsonl</code>
+          sources: <code>~/.claude/projects/</code> + <code>~/.codex/sessions/</code>
         </p>
       </footer>
     </main>

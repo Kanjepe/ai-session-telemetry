@@ -5,16 +5,11 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const rootDir = join(dirname(fileURLToPath(import.meta.url)), '..');
-const appSource = readFileSync(join(rootDir, 'public', 'app.js'), 'utf8');
+const appSource = ['app.js', 'js/state.js', 'js/sessions-view.js']
+  .map((file) => readFileSync(join(rootDir, 'public', file), 'utf8'))
+  .join('\n');
 const indexSource = readFileSync(join(rootDir, 'public', 'index.html'), 'utf8');
 const serverSource = readFileSync(join(rootDir, 'server.js'), 'utf8');
-
-test('provider tabs are excluded from chart range tab behavior', () => {
-  assert.match(
-    appSource,
-    /const chartTabs = document\.querySelectorAll\('\.chart-tabs:not\(\.provider-tabs\) \.chart-tab'\);/,
-  );
-});
 
 test('server includes Codex live sessions and refreshes changed rollouts', () => {
   assert.match(
@@ -38,7 +33,7 @@ test('live session UI has provider filters, provider labels, and collision-safe 
   assert.match(appSource, /function sessionKey\(session\)/);
   assert.match(appSource, /`\$\{session\.provider\}:\$\{session\.sessionId\}`/);
   assert.match(appSource, /entry__provider/);
-  assert.match(appSource, /sessionProviderView === 'all'/);
+  assert.match(appSource, /state\.sessionProviderView === 'all'/);
 });
 
 test('Codex aggregation failures cannot prevent Claude snapshots', () => {
