@@ -29,8 +29,9 @@ Works for anyone running Claude Code, Codex CLI, or both locally; no organizatio
 - Watches Claude Code and Codex CLI session JSONL files in real time
 - Renders one provider-labeled live card per Claude or Codex session: status, model, tokens, tool usage, current tool, cost estimate, live burn rate (tok/min), and recent tool chain
 - Filters live sessions by `all | claude | codex` without mixing provider identities
-- Provides separate `claude | codex` statistics views with provider-specific model pricing and cost totals
-- Token-usage chart with tabbed range toggle: **hours** (last 24h with live current-hour pulse) · **days** (last 7d) · **weeks** (last 4w) · **months** (last 6m)
+- Statistics view driven by one period – **day · week · month · year** – with ‹ › navigation (or ← →): cost, tokens, change against the same point of the previous period, end-of-period forecast, a bar chart stacked by model, project and model breakdowns, and a 12-month daily-cost heatmap in the year view
+- Statistics for `all | claude | codex`, each message priced with its own model's rate at the time it was sent
+- Reads compressed Codex rollouts (`.jsonl.zst`) as well as live `.jsonl` files
 - Discovers and lists installed skills and subagents — both global and project-scoped
 - Live updates via WebSocket — no manual refresh needed
 - 100% passive: does not modify any agent, skill, MCP server, or setting
@@ -66,7 +67,7 @@ Nothing is written to these locations — the dashboard is read-only.
 
 ## Quick start
 
-Requirements: **Node.js 18 or newer** and at least one local Claude Code or Codex CLI session directory.
+Requirements: **Node.js 22.15 or newer** (built-in zstd is used for Codex rollouts) and at least one local Claude Code or Codex CLI session directory.
 
 ```bash
 git clone https://github.com/Kanjepe/ai-session-telemetry.git
@@ -438,6 +439,12 @@ Initial scan parses up to 24h-old sessions. If you have very large JSONL files (
 
 `chokidar` falls back to polling on some network drives. If a provider directory lives on a synced drive (OneDrive, Dropbox), watch events may be delayed. The periodic 5-second snapshot acts as a fallback. Live cards are Claude-only; Codex rollout changes update the Codex statistics view.
 
+### Checks before a commit
+
+```bash
+npm run check   # ESLint + all tests – the same command CI runs
+```
+
 ### Need to debug
 
 Add a `console.log` in `lib/sessions.js` or `server.js` and run with:
@@ -489,7 +496,8 @@ ai-session-telemetry/
 ├── server.js              Express + WebSocket + chokidar watcher
 ├── lib/
 │   ├── sessions.js        JSONL parser, status logic, cost/burn aggregation
-│   ├── stats.js           token aggregation: 24h / days / weeks / months
+│   ├── stats.js           token aggregation into daily / hourly series
+│   ├── activity.js        subagent and skill activity grouping
 │   ├── pricing.js         Anthropic model pricing (used for cost estimates)
 │   ├── codex.js           Codex rollout parser and statistics adapter
 │   ├── codex-pricing.js   OpenAI model pricing for Codex costs
@@ -497,10 +505,19 @@ ai-session-telemetry/
 │   ├── registry.js        skill / agent / project library discovery
 │   └── utils.js           shared helpers (day keys, project name decoding)
 ├── public/
-│   ├── index.html         layout, header, chart range tabs
-│   ├── app.js             WS client, card renderer, chart toggle
-│   └── style.css          card styles, animations, chart theme
-├── tests/                 node:test suites for the lib/ modules
+│   ├── index.html         layout and view markup
+│   ├── app.js             entry point: navigation + WebSocket client
+│   ├── js/
+│   │   ├── state.js         shared client state
+│   │   ├── format.js        pure formatters (unit-tested)
+│   │   ├── stats-model.js   period maths: ranges, comparisons, forecast, heatmap (unit-tested)
+│   │   ├── stats-view.js    statistics view
+│   │   ├── sessions-view.js live session cards
+│   │   ├── library-view.js  agents, skills, projects, activity
+│   │   └── pricing.js       client-side price table fallback
+│   └── style.css          terminal theme
+├── tests/                 node:test suites (server modules + pure UI modules)
+├── .github/workflows/     CI: lint + tests on Linux and Windows, Node 22 and 24
 ├── start.bat              Windows quick-launch
 ├── package.json
 ├── package-lock.json
